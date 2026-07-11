@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StopSpot data downloader</title>
+<style>
+body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;background:#101418;color:#eef2f6;display:flex;flex-direction:column;align-items:center;padding:40px 16px}
+h1{margin-bottom:6px}p{color:#93a1b0;max-width:560px;text-align:center;line-height:1.5}
+.card{background:#1a2027;border:1px solid #2c3640;border-radius:14px;padding:22px;margin:14px;width:min(560px,94vw)}
+button{background:#f28c1b;color:#fff;border:none;border-radius:10px;padding:14px 22px;font-size:17px;font-weight:700;cursor:pointer;width:100%}
+button:disabled{background:#4a5866;cursor:wait}
+.status{margin-top:10px;font-size:14px;color:#93a1b0;min-height:20px}
+.ok{color:#2fae67;font-weight:700}.err{color:#e74c3c}
+</style>
+</head>
+<body>
+<h1>🚛 StopSpot data downloader</h1>
+<p>Click each button once. The button will say "working…" for up to a couple of minutes while the data is prepared, then a file will land in your Downloads folder. When you have both files, drag them into the Claude chat.</p>
+
+<div class="card">
+  <button id="b1">⬇ Download 1: All NZ public toilets</button>
+  <div class="status" id="s1"></div>
+</div>
+<div class="card">
+  <button id="b2">⬇ Download 2: Dump stations, rest areas & truck fuel</button>
+  <div class="status" id="s2"></div>
+</div>
+
+<script>
+const Q1 = '[out:json][timeout:300];area["ISO3166-1"="NZ"][admin_level=2]->.nz;nwr["amenity"="toilets"](area.nz);out tags center;';
+const Q2 = '[out:json][timeout:300];area["ISO3166-1"="NZ"][admin_level=2]->.nz;(nwr["amenity"="sanitary_dump_station"](area.nz);nwr["highway"="rest_area"](area.nz);nwr["amenity"="fuel"]["hgv"~"yes|designated"](area.nz););out tags center;';
+const SERVERS = ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+
+async function grab(query, filename, btn, statusEl){
+  btn.disabled = true;
+  for (let i=0;i<SERVERS.length;i++){
+    try{
+      statusEl.textContent = 'Working… fetching from server '+(i+1)+' (can take 1–2 minutes, hang tight)';
+      const res = await fetch(SERVERS[i], {method:'POST', body:'data='+encodeURIComponent(query), headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const text = await res.text();
+      const parsed = JSON.parse(text);
+      if(!parsed.elements || !parsed.elements.length) throw new Error('empty result');
+      const blob = new Blob([text], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      statusEl.innerHTML = '<span class="ok">✔ Done — '+parsed.elements.length.toLocaleString()+' locations saved as '+filename+' (check your Downloads folder)</span>';
+      btn.disabled = false;
+      return;
+    }catch(e){
+      statusEl.innerHTML = '<span class="err">Server '+(i+1)+' failed ('+e.message+')'+(i<SERVERS.length-1?' — trying backup server…':'')+'</span>';
+    }
+  }
+  statusEl.innerHTML = '<span class="err">Both servers failed. Wait 5 minutes and click again — they rate-limit busy periods.</span>';
+  btn.disabled = false;
+}
+document.getElementById('b1').onclick = e => grab(Q1, 'toilets.json', e.target, document.getElementById('s1'));
+document.getElementById('b2').onclick = e => grab(Q2, 'extras.json', e.target, document.getElementById('s2'));
+</script>
+</body>
+</html>
